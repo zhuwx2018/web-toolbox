@@ -129,13 +129,13 @@ const highlightedJson = computed(() => {
 const inputLineNumbers = computed(() => {
   if (!inputText.value) return '<span>1</span>'
   const lines = inputText.value.split('\n').length
-  return Array.from({ length: lines }, (_, i) => `<span>${i + 1}</span>`).join('')
+  return Array.from({ length: lines }, (_, i) => `<span>${i + 1}</span>`).join('\n')
 })
 
 const outputLineNumbers = computed(() => {
   if (!outputText.value) return '<span>1</span>'
   const lines = outputText.value.split('\n').length
-  return Array.from({ length: lines }, (_, i) => `<span>${i + 1}</span>`).join('')
+  return Array.from({ length: lines }, (_, i) => `<span>${i + 1}</span>`).join('\n')
 })
 
 function syncInputScroll(e) {
@@ -434,16 +434,19 @@ textarea::placeholder {
   border-right: 1px solid #e1e4e8;
   font-family: Consolas, Monaco, 'Courier New', monospace;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 20.8px;
   color: #999;
   text-align: right;
   user-select: none;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-width: 40px;
+  white-space: pre-wrap;
 }
 
 .line-numbers span {
   display: block;
+  height: 20.8px;
 }
 
 .editor-wrapper textarea {
