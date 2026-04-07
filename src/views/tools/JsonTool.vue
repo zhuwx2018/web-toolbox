@@ -34,12 +34,17 @@
               上传文件
             </label>
           </div>
-          <textarea
-            v-model="inputText"
-            placeholder="粘贴或输入 JSON 数据..."
-            spellcheck="false"
-            @input="onInputChange"
-          ></textarea>
+          <div class="editor-wrapper">
+            <div class="line-numbers" v-html="inputLineNumbers"></div>
+            <textarea
+              v-model="inputText"
+              placeholder="粘贴或输入 JSON 数据..."
+              spellcheck="false"
+              @input="onInputChange"
+              @scroll="syncInputScroll"
+              ref="inputTextarea"
+            ></textarea>
+          </div>
         </div>
 
         <div class="output-section">
@@ -47,9 +52,12 @@
             <span>格式化结果</span>
             <span class="json-status" :class="statusClass">{{ statusText }}</span>
           </div>
-          <div class="output-content" ref="outputRef">
-            <pre v-if="error" class="error-text">{{ error }}</pre>
-            <pre v-else ref="highlightRef" class="highlighted-json" v-html="highlightedJson"></pre>
+          <div class="editor-wrapper output-wrapper">
+            <div class="line-numbers" v-html="outputLineNumbers" ref="outputLineNumbersRef"></div>
+            <div class="output-content" ref="outputRef" @scroll="syncOutputScroll">
+              <pre v-if="error" class="error-text">{{ error }}</pre>
+              <pre v-else ref="highlightRef" class="highlighted-json" v-html="highlightedJson"></pre>
+            </div>
           </div>
         </div>
       </div>
@@ -74,6 +82,8 @@ const error = ref('')
 const copied = ref(false)
 const outputRef = ref(null)
 const highlightRef = ref(null)
+const outputLineNumbersRef = ref(null)
+const inputTextarea = ref(null)
 const showBackToTop = ref(false)
 
 onMounted(() => {
@@ -115,6 +125,32 @@ const highlightedJson = computed(() => {
     return escapeHtml(outputText.value)
   }
 })
+
+const inputLineNumbers = computed(() => {
+  if (!inputText.value) return '<span>1</span>'
+  const lines = inputText.value.split('\n').length
+  return Array.from({ length: lines }, (_, i) => `<span>${i + 1}</span>`).join('')
+})
+
+const outputLineNumbers = computed(() => {
+  if (!outputText.value) return '<span>1</span>'
+  const lines = outputText.value.split('\n').length
+  return Array.from({ length: lines }, (_, i) => `<span>${i + 1}</span>`).join('')
+})
+
+function syncInputScroll(e) {
+  const lineNumbers = e.target.previousElementSibling
+  if (lineNumbers) {
+    lineNumbers.scrollTop = e.target.scrollTop
+  }
+}
+
+function syncOutputScroll(e) {
+  const lineNumbers = e.target.previousElementSibling
+  if (lineNumbers) {
+    lineNumbers.scrollTop = e.target.scrollTop
+  }
+}
 
 function escapeHtml(str) {
   return str
@@ -383,6 +419,43 @@ textarea {
 
 textarea::placeholder {
   color: #999;
+}
+
+.editor-wrapper {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.line-numbers {
+  flex-shrink: 0;
+  padding: 16px 8px 16px 12px;
+  background: #f7f7f7;
+  border-right: 1px solid #e1e4e8;
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #999;
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  min-width: 40px;
+}
+
+.line-numbers span {
+  display: block;
+}
+
+.editor-wrapper textarea {
+  flex: 1;
+}
+
+.output-wrapper .line-numbers {
+  padding: 16px 8px 16px 12px;
+}
+
+.output-wrapper .output-content {
+  flex: 1;
 }
 
 .output-content {
