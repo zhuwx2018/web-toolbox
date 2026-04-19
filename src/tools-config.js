@@ -38,5 +38,13 @@ export const tools = [
     icon: '⊞',
     route: '/tools/image-base64',
     gradient: 'linear-gradient(135deg, #30cfd0, #330867)'
+  },
+  {
+    id: 'base64-to-file',
+    name: 'Base64 转文件工具',
+    description: '将 Base64 字符串转换为指定格式文件并下载',
+    icon: '📥',
+    route: '/tools/base64-to-file',
+    gradient: 'linear-gradient(135deg, #fa709a, #fee140)'
   }
 ]
