@@ -81,7 +81,7 @@
               <div class="split-content-wrapper">
                 <div class="split-line-nums">
                   <template v-for="(item, index) in splitResult.left" :key="'ln' + index">
-                    <div v-if="item.type === 'delete' || item.type === 'equal'" class="line-num">
+                    <div v-if="item.type !== 'empty'" class="line-num">
                       {{ item.lineNum }}
                     </div>
                   </template>
@@ -93,6 +93,12 @@
                       class="diff-line delete"
                     >
                       <span class="line-value">{{ item.value }}</span>
+                    </div>
+                    <div
+                      v-else-if="item.type === 'replace'"
+                      class="diff-line replace"
+                    >
+                      <span class="line-value" v-html="renderCharDiff(item.charDiff, 'old')"></span>
                     </div>
                     <div v-else-if="item.type === 'equal'" class="diff-line equal">
                       <span class="line-value">{{ item.value }}</span>
@@ -107,7 +113,7 @@
               <div class="split-content-wrapper">
                 <div class="split-line-nums">
                   <template v-for="(item, index) in splitResult.right" :key="'rn' + index">
-                    <div v-if="item.type === 'insert' || item.type === 'equal'" class="line-num">
+                    <div v-if="item.type !== 'empty'" class="line-num">
                       {{ item.lineNum }}
                     </div>
                   </template>
@@ -119,6 +125,12 @@
                       class="diff-line insert"
                     >
                       <span class="line-value">{{ item.value }}</span>
+                    </div>
+                    <div
+                      v-else-if="item.type === 'replace'"
+                      class="diff-line replace"
+                    >
+                      <span class="line-value" v-html="renderCharDiff(item.charDiff, 'new')"></span>
                     </div>
                     <div v-else-if="item.type === 'equal'" class="diff-line equal">
                       <span class="line-value">{{ item.value }}</span>
@@ -146,8 +158,10 @@
               >
                 <span class="line-num">{{ item.lineNum1 || '-' }}</span>
                 <span class="line-num">{{ item.lineNum2 || '-' }}</span>
-                <span class="line-type">{{ item.type === 'delete' ? '-' : item.type === 'insert' ? '+' : ' ' }}</span>
-                <span class="line-value">{{ item.value }}</span>
+                <span class="line-type">{{ getLineTypeChar(item.type) }}</span>
+                <span class="line-value" v-if="item.type === 'equal'">{{ item.value }}</span>
+                <span class="line-value" v-else-if="item.type === 'replace'" v-html="renderCharDiff(item.charDiff, 'both')"></span>
+                <span class="line-value" v-else>{{ item.value }}</span>
               </div>
             </template>
           </div>
@@ -157,21 +171,56 @@
       <button v-if="showBackToTop" class="back-to-top" @click="scrollToTop">
         ↑
       </button>
+
+      <!-- 调试面板 -->
+      <div class="debug-panel" v-if="showDebug">
+        <div class="debug-header">
+          <span>diffResult</span>
+        </div>
+        <pre>{{ JSON.stringify(diffResult, null, 2) }}</pre>
+        <div class="debug-header" style="margin-top: 20px;">
+          <span>splitResult.left</span>
+        </div>
+        <pre>{{ JSON.stringify(splitResult.left, null, 2) }}</pre>
+        <div class="debug-header" style="margin-top: 20px;">
+          <span>splitResult.right</span>
+        </div>
+        <pre>{{ JSON.stringify(splitResult.right, null, 2) }}</pre>
+        <div style="text-align: center; margin-top: 10px;">
+          <button @click="showDebug = false">关闭</button>
+        </div>
+      </div>
+      <button v-if="!showDebug" class="debug-btn" @click="showDebug = true">调试</button>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
-import { computeDiff, findDiffIndices } from '../../utils/diff'
+import { computeDiff, findDiffIndices, computeLineDiff } from '../../utils/diff'
 
-const text1 = ref('')
-const text2 = ref('')
+const text1 = ref(`function hello() {
+  console.log("Hello World");
+  return true;
+}
+
+const name = "Alice";
+const age = 25;`)
+
+const text2 = ref(`function hello() {
+  console.log("Hello New");
+  return false;
+}
+
+const name = "Bob";
+const age = 30;
+const city = "Beijing";`)
 const viewMode = ref('split')
 const currentDiffIndex = ref(0)
 const leftContent = ref(null)
 const rightContent = ref(null)
 const showBackToTop = ref(false)
+const showDebug = ref(false)
 let isScrolling = false
 
 onMounted(() => {
@@ -202,24 +251,121 @@ const splitResult = computed(() => {
   const right = []
   let leftLineNum = 1
   let rightLineNum = 1
+  const diff = diffResult.value
+  let i = 0
 
-  diffResult.value.forEach(item => {
+  while (i < diff.length) {
+    const item = diff[i]
+
     if (item.type === 'equal') {
       left.push({ type: 'equal', lineNum: leftLineNum, value: item.value })
       right.push({ type: 'equal', lineNum: rightLineNum, value: item.value })
       leftLineNum++
       rightLineNum++
+      i++
     } else if (item.type === 'delete') {
-      left.push({ type: 'delete', lineNum: leftLineNum, value: item.value })
-      leftLineNum++
+      // 检查后续是否有相似的 insert（可能是同一行的修改）
+      let matchedInsert = -1
+      for (let j = i + 1; j < Math.min(i + 5, diff.length); j++) {
+        if (diff[j].type === 'insert' && linesSimilar(item.value, diff[j].value)) {
+          matchedInsert = j
+          break
+        }
+        if (diff[j].type === 'equal') break
+      }
+
+      if (matchedInsert > i) {
+        // 找到匹配的 insert，合并为 replace
+        const insertItem = diff[matchedInsert]
+        const charDiff = computeLineDiff(item.value, insertItem.value)
+        left.push({ type: 'replace', lineNum: leftLineNum, value: item.value, charDiff })
+        right.push({ type: 'replace', lineNum: rightLineNum, value: insertItem.value, charDiff })
+        leftLineNum++
+        rightLineNum++
+        i = matchedInsert + 1
+      } else {
+        // 纯删除行
+        left.push({ type: 'delete', lineNum: leftLineNum, value: item.value })
+        leftLineNum++
+        i++
+      }
     } else if (item.type === 'insert') {
       right.push({ type: 'insert', lineNum: rightLineNum, value: item.value })
       rightLineNum++
+      i++
+    } else if (item.type === 'replace') {
+      left.push({ type: 'replace', lineNum: leftLineNum, value: item.oldValue, charDiff: item.charDiff })
+      right.push({ type: 'replace', lineNum: rightLineNum, value: item.newValue, charDiff: item.charDiff })
+      leftLineNum++
+      rightLineNum++
+      i++
+    } else {
+      i++
     }
-  })
+  }
 
   return { left, right }
 })
+
+function linesSimilar(line1, line2) {
+  if (line1 === line2) return true
+  if (!line1 || !line2) return false
+
+  // 计算公共前缀长度
+  let prefixLen = 0
+  const minLen = Math.min(line1.length, line2.length)
+  while (prefixLen < minLen && line1[prefixLen] === line2[prefixLen]) {
+    prefixLen++
+  }
+
+  const maxLen = Math.max(line1.length, line2.length)
+  if (maxLen === 0) return true
+
+  // 只要公共前缀够长（超过50%），就认为相似
+  return prefixLen >= maxLen * 0.5
+}
+
+function getLineTypeChar(type) {
+  switch (type) {
+    case 'delete': return '-'
+    case 'insert': return '+'
+    case 'replace': return '~'
+    default: return ' '
+  }
+}
+
+/**
+ * 渲染字符级差异
+ * @param {Array} charDiff - 字符差异数组
+ * @param {string} mode - 'old' 显示删除字符, 'new' 显示新增字符, 'both' 显示所有
+ */
+function renderCharDiff(charDiff, mode) {
+  if (!charDiff || charDiff.length === 0) return ''
+  return charDiff.map(chunk => {
+    if (chunk.type === 'equal') {
+      return escapeHtml(chunk.value)
+    } else if (chunk.type === 'delete') {
+      if (mode === 'old' || mode === 'both') {
+        return `<span class="char-delete">${escapeHtml(chunk.value)}</span>`
+      }
+      return ''
+    } else if (chunk.type === 'insert') {
+      if (mode === 'new' || mode === 'both') {
+        return `<span class="char-insert">${escapeHtml(chunk.value)}</span>`
+      }
+      return ''
+    }
+    return escapeHtml(chunk.value)
+  }).join('')
+}
+
+function escapeHtml(text) {
+  if (!text) return ''
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
 
 function handleFileUpload1(event) {
   const file = event.target.files[0]
@@ -468,6 +614,68 @@ function scrollToCurrentDiff() {
   transform: translateY(-2px) scale(1.04);
 }
 
+.debug-btn {
+  position: fixed;
+  bottom: 100px;
+  right: 40px;
+  width: 50px;
+  height: 50px;
+  background: #666;
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  z-index: 1000;
+}
+
+.debug-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 2px solid #dc3545;
+  border-radius: 8px;
+  padding: 16px;
+  max-width: 80%;
+  max-height: 80%;
+  overflow: auto;
+  z-index: 2000;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ddd;
+}
+
+.debug-header button {
+  padding: 4px 12px;
+  background: #dc3545;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.debug-panel pre {
+  font-size: 12px;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.debug-info {
+  font-size: 10px;
+  color: #999;
+  margin-left: 8px;
+}
+
 .diff-current {
   font-size: 13px;
   color: #667eea;
@@ -585,6 +793,32 @@ function scrollToCurrentDiff() {
   color: #28a745;
 }
 
+.diff-line.replace {
+  background: #ffeeba;
+  color: #856404;
+  font-weight: 600;
+}
+
+/* 行内字符差异高亮 - 与背景形成鲜明对比 */
+.char-delete {
+  background: #dc3545;
+  color: #ffffff;
+  text-decoration: line-through;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.char-insert {
+  background: #28a745;
+  color: #ffffff;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
 .line-value {
   flex: 1;
 }
@@ -636,6 +870,12 @@ function scrollToCurrentDiff() {
 .diff-unified .diff-line.insert {
   background: #f0fff4;
   color: #28a745;
+}
+
+.diff-unified .diff-line.replace {
+  background: #ffeeba;
+  color: #856404;
+  font-weight: 600;
 }
 
 .empty-hint {
@@ -743,5 +983,33 @@ function scrollToCurrentDiff() {
   .split-header {
     top: 100px;
   }
+}
+</style>
+
+<!-- 全局样式 - 用于 v-html 渲染的内容 -->
+<style>
+.char-delete {
+  background: #dc3545 !important;
+  color: #ffffff !important;
+  text-decoration: line-through;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.char-insert {
+  background: #28a745 !important;
+  color: #ffffff !important;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.debug-info {
+  font-size: 10px;
+  color: #999;
+  margin-left: 8px;
 }
 </style>
